@@ -1,9 +1,11 @@
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
 import sqlite3
+import tempfile
 import time
 from contextlib import closing
 from datetime import datetime
@@ -29,6 +31,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 DATABASE_PATH = Path(os.getenv("DATABASE_PATH", str(BASE_DIR / "data" / "products.sqlite3")))
+EPHEMERAL_DATABASE_PATH = Path(tempfile.gettempdir()) / "oslo_salla_products.sqlite3"
 SKU_PREFIX = "PRD"
 DEFAULT_QTY = 100
 DEFAULT_MAX_QTY = 10
@@ -128,8 +131,36 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 def _db() -> sqlite3.Connection:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(DATABASE_PATH, timeout=30)
+    global DATABASE_PATH
+    try:
+        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(DATABASE_PATH, timeout=30)
+    except PermissionError:
+        if DATABASE_PATH == EPHEMERAL_DATABASE_PATH:
+            raise
+        logging.warning(
+            "Database path %s is not writable; using temporary storage at %s. "
+            "Data may be lost when the service restarts.",
+            DATABASE_PATH,
+            EPHEMERAL_DATABASE_PATH,
+        )
+        DATABASE_PATH = EPHEMERAL_DATABASE_PATH
+        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(DATABASE_PATH, timeout=30)
+    except sqlite3.OperationalError as exc:
+        if "unable to open database file" not in str(exc).lower():
+            raise
+        if DATABASE_PATH == EPHEMERAL_DATABASE_PATH:
+            raise
+        logging.warning(
+            "Database path %s could not be opened; using temporary storage at %s. "
+            "Data may be lost when the service restarts.",
+            DATABASE_PATH,
+            EPHEMERAL_DATABASE_PATH,
+        )
+        DATABASE_PATH = EPHEMERAL_DATABASE_PATH
+        DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(DATABASE_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
     return connection
 
@@ -267,6 +298,10 @@ def _product_count(connection: sqlite3.Connection) -> int:
     return int(connection.execute("SELECT COUNT(*) FROM products").fetchone()[0])
 
 
+def _is_ephemeral_storage() -> bool:
+    return DATABASE_PATH.resolve().is_relative_to(Path(tempfile.gettempdir()).resolve())
+
+
 @protected.get("/config")
 def config_status():
     cloudinary_ready = all(
@@ -280,6 +315,7 @@ def config_status():
     return {
         "gemini_ready": bool(os.getenv("GEMINI_API_KEY")),
         "cloudinary_ready": cloudinary_ready,
+        "storage_ephemeral": _is_ephemeral_storage(),
     }
 
 

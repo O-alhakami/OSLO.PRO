@@ -27,6 +27,7 @@
       <div class="row"><span id="countBadge" class="badge">المنتجات: 0</span><button id="logoutBtn" class="secondary">تسجيل الخروج</button></div>
     </header>
     <div class="wrap">
+      <div id="storageWarning" class="card hidden"><div class="inside" style="background:#fff7ed;color:#9a3412"><strong>تنبيه التخزين المجاني:</strong> تُحفظ قاعدة المنتجات على مساحة مؤقتة في Render. قد تُحذف البيانات عند إيقاف الخدمة أو إعادة تشغيلها أو نشر تحديث. نزّل ملف Excel للاحتفاظ بنسخة احتياطية.</div></div>
       <section class="card">
         <h2>✨ التعبئة التلقائية بالذكاء الاصطناعي (Gemini)</h2>
         <div class="inside">
@@ -156,6 +157,7 @@
         const c=await api("/api/config");
         $("aiConfig").textContent=c.gemini_ready?"Gemini جاهز":"يلزم إعداد GEMINI_API_KEY على الخادم لاستخدام Gemini.";
         $("imageConfig").textContent=c.cloudinary_ready?"Cloudinary جاهز":"يلزم إعداد مفاتيح Cloudinary على الخادم لرفع الصور.";
+        $("storageWarning").classList.toggle("hidden",!c.storage_ephemeral);
       } catch(error) { toast(error.message); }
     }
     async function loadProducts() {
